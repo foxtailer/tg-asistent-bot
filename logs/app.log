@@ -1,0 +1,11 @@
+2026-02-03 02:53:43,599|WARNING|__main__|<module>:**************
+2026-02-03 02:53:43,813|INFO|aiogram.dispatcher|start_polling:Start polling
+2026-02-03 02:53:43,863|INFO|aiogram.dispatcher|_polling:Run polling for bot @Asist_fox_bot id=7823944712 - 'Asistent'
+2026-02-03 02:55:13,611|WARNING|aiogram.dispatcher|_signal_stop_polling:Received SIGINT signal
+2026-02-03 02:55:13,613|INFO|aiogram.dispatcher|_polling:Polling stopped for bot @Asist_fox_bot id=7823944712 - 'Asistent'
+2026-02-03 02:55:13,614|INFO|aiogram.dispatcher|start_polling:Polling stopped
+2026-02-04 01:24:27,629|INFO|__main__|<module>:Webhook deleted successfully!
+2026-02-04 02:42:52,777|INFO|__main__|<module>:Webhook deleted successfully!
+2026-02-04 08:17:07,087|INFO|__main__|<module>:Webhook deleted successfully!
+2026-02-06 10:23:19,376|INFO|__main__|<module>:Webhook deleted successfully!
+2026-02-10 12:14:13,611|INFO|__main__|<module>:Webhook deleted successfully!

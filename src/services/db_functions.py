@@ -5,8 +5,8 @@ from datetime import datetime
 from typing import List, Tuple
 from collections import defaultdict, namedtuple
 
+from src.config import DB_PATH
 
-DB_PATH = ''
 
 WordRow = namedtuple("WordRow", ["id", "eng", "rus", "example", "day", "lvl"])
 
@@ -28,143 +28,9 @@ async def init_db():
             print("Table created or already exists.")
     except aiosqlite.Error as e:
         print(f"SQLite error: {e}")
-        
-
-# Future db
-def init_user_db():
-    print(f"Connecting to database at ..")
-
-    try:
-        with sqlite3.connect(DB_PATH) as connection:
-            connection.execute("PRAGMA foreign_keys = ON")
-            print("Creating tables if not exist...")
-                
-            connection.execute(f"""
-                CREATE TABLE IF NOT EXISTS user (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tg_id INTEGER NOT NULL,
-                    name TEXT,
-                    lvl INTEGER,
-                    words INTEGER
-                )
-            """)
-            connection.execute(f"""
-                CREATE TABLE IF NOT EXISTS dict (
-                    user INTEGER,
-                    eng INTEGER,
-                    ru INTEGER,
-                    jp INTEGER,
-                    date TEXT DEFAULT (DATETIME('now')),
-                    FOREIGN KEY (user) REFERENCES user(id),
-                    FOREIGN KEY (eng) REFERENCES ENG(id),
-                    FOREIGN KEY (ru) REFERENCES RU(id),
-                    FOREIGN KEY (jp) REFERENCES JP(id),
-                    UNIQUE (user, eng),
-                    UNIQUE (user, ru),
-                    UNIQUE (user, jp)
-                )
-            """)
-            connection.execute(f"""
-                CREATE TABLE IF NOT EXISTS examples (
-                    user INTEGER,
-                    eng INTEGER,
-                    ru INTEGER,
-                    jp INTEGER,
-                    ex INTEGER,
-                    FOREIGN KEY (user) REFERENCES user(id),
-                    FOREIGN KEY (eng) REFERENCES ENG(id),
-                    FOREIGN KEY (ru) REFERENCES RU(id),
-                    FOREIGN KEY (jp) REFERENCES JP(id),
-                    CHECK (
-                        (eng IS NOT NULL) + (ru IS NOT NULL) + (jp IS NOT NULL) = 1
-                    )
-                )
-            """)
-            connection.execute(f"""
-                CREATE TABLE IF NOT EXISTS progress (
-                    user INTEGER,
-                    eng INTEGER,
-                    ru INTEGER,
-                    jp INTEGER,
-                    lvl INTEGER,
-                    FOREIGN KEY (user) REFERENCES user(id),
-                    FOREIGN KEY (eng) REFERENCES ENG(id),
-                    FOREIGN KEY (ru) REFERENCES RU(id),
-                    FOREIGN KEY (jp) REFERENCES JP(id),
-                    CHECK (
-                        (eng IS NOT NULL) + (ru IS NOT NULL) + (jp IS NOT NULL) = 1
-                    )
-                )
-            """)
-
-            connection.commit()
-            print("Tables created or already exist.")
-    except sqlite3.Error as e:
-        print(f"SQLite error: {e}")
 
 
-# Future db
-def init_lang_db(language: list[str]):
-    print(f"Connecting to database at ..")
-
-    try:
-        with sqlite3.connect(DB_PATH) as connection:
-            connection.execute("PRAGMA foreign_keys = ON")
-            print("Creating tables if not exist...")
-
-            for i in language:
-                lang = i.upper()
-                
-                connection.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {lang} (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        word TEXT NOT NULL,
-                        cefr TEXT,
-                        freq INTEGER
-                    )
-                """)
-                connection.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {lang}_SYN (
-                        word INTEGER,
-                        syn INTEGER,
-                        FOREIGN KEY (word) REFERENCES {lang}(id),
-                        FOREIGN KEY (syn) REFERENCES {lang}(id),
-                        PRIMARY KEY (word, syn)
-                    )
-                """)
-                connection.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {lang}_ANT (
-                        word INTEGER,
-                        ant INTEGER,
-                        FOREIGN KEY (word) REFERENCES {lang}(id),
-                        FOREIGN KEY (ant) REFERENCES {lang}(id),
-                        PRIMARY KEY (word, ant)
-                    )
-                """)
-                connection.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {lang}_POS (
-                        word INTEGER,
-                        pos TEXT,
-                        FOREIGN KEY (word) REFERENCES {lang}(id),
-                        PRIMARY KEY (word, pos)
-                    )
-                """)
-                connection.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {lang}_EX (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        word INTEGER NOT NULL,
-                        text TEXT,
-                        FOREIGN KEY (word) REFERENCES {lang}(id)
-                    )
-                """)
-
-            connection.commit()
-            print("Tables created or already exist.")
-    except sqlite3.Error as e:
-        print(f"SQLite error: {e}")
-
-
-async def add_to_db(user_name: str, words: List[Tuple[str, str, str]], db_path: str='') -> bool:
+async def add_to_db(user_name: str, words: List[Tuple[str, str, str]], db_path: str = DB_PATH) -> bool:
     try:    
         async with aiosqlite.connect(db_path) as connection:
             async with connection.cursor() as cursor:
@@ -184,12 +50,12 @@ async def add_to_db(user_name: str, words: List[Tuple[str, str, str]], db_path: 
         return False
 
 
-async def del_from_db(user_name, command_args: Tuple[str, Tuple[int]], db_path='') -> bool:
+async def del_from_db(user_name, command_args: Tuple[str, Tuple[int]], db_path=DB_PATH) -> bool:
     try:
         async with aiosqlite.connect(db_path) as connection:
             cursor = await connection.cursor()
 
-            if command_args[0] == 'w': 
+            if not command_args[0]: 
                 # Delete by IDs
                 placeholders = ','.join('?' for _ in command_args[1])
                 query = f'DELETE FROM {user_name} WHERE id IN ({placeholders})'
@@ -224,7 +90,7 @@ async def del_from_db(user_name, command_args: Tuple[str, Tuple[int]], db_path='
         return False
 
 
-async def create_user(user_name: str, db_path='') -> None:
+async def create_user(user_name: str, db_path=DB_PATH) -> None:
     
     async with aiosqlite.connect(db_path) as conn:
         async with conn.cursor() as cursor:
@@ -241,7 +107,7 @@ async def create_user(user_name: str, db_path='') -> None:
             await conn.commit()
 
 
-async def check_user(user_name:str, db_path='')->bool:
+async def check_user(user_name:str, db_path=DB_PATH)->bool:
      
      async with aiosqlite.connect(db_path) as conn:
         async with conn.cursor() as cursor:
@@ -251,13 +117,13 @@ async def check_user(user_name:str, db_path='')->bool:
             if not user_exists:
                 await cursor.execute("INSERT INTO users (name) VALUES (?)", (user_name,))
                 await conn.commit()
-                await create_user(user_name, db_path)
+                await create_user(user_name, DB_PATH)
                 return False
             else:
                 return True
 
 
-async def get_word(user_name: str, n: int = 1, db_path='') -> list[WordRow,]:
+async def get_word(user_name: str, n: int = 1, db_path=DB_PATH) -> list[WordRow,]:
     async with aiosqlite.connect(db_path) as db:
         async with db.cursor() as cursor:
             await cursor.execute(f"SELECT COUNT(*) FROM {user_name}")
@@ -285,7 +151,7 @@ async def get_word(user_name: str, n: int = 1, db_path='') -> list[WordRow,]:
             return rows_as_tuples
 
 
-async def get_day(user_name: str, days: Tuple[int], db_path='') -> dict[int:list[WordRow,]]:
+async def get_day(user_name: str, days: Tuple[int], db_path: str = DB_PATH) -> dict[int:list[WordRow,]]:
     """
     Return day or days {day_number: [WordRow,...],}
     """
@@ -327,7 +193,7 @@ async def get_day(user_name: str, days: Tuple[int], db_path='') -> dict[int:list
     return result
         
 
-async def get_all(user_name: str, db_path='') -> dict[int:list[WordRow]]:
+async def get_all(user_name: str, db_path: str = DB_PATH) -> dict[int:list[WordRow]]:
     """
     Return all user days {day_number: [WordRow,...],}
     """
@@ -351,29 +217,8 @@ async def get_all(user_name: str, db_path='') -> dict[int:list[WordRow]]:
     return dict(result)
 
 
-async def get_info(user_name: str, db_path='') -> tuple:
-    """
-    ruturn info about amount of days and words of user: (words, days)
-    """
-
-    async with aiosqlite.connect(db_path) as connection:
-        async with connection.execute(
-            f'''
-                SELECT MAX(id), COUNT(DISTINCT day) 
-                FROM {user_name}
-            '''
-            ) as cursor:
-            return await cursor.fetchall()
-
-
 def find_dir_path():
     script_path = os.path.realpath(__file__)
     dir_path = os.path.dirname(script_path)
     return dir_path
 
-
-if __name__ == '__main__':
-    import sqlite3
-    init_lang_db(["eng", "ru"])
-    init_lang_db(["jp"])
-    init_user_db()

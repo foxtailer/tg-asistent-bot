@@ -1,0 +1,29 @@
+version: 1
+
+formatters:
+  file:
+    style: "{"
+    format: "{asctime}|{levelname}|{name}|{funcName}:{message}"
+
+  console:  
+    style: "{"
+    format: "{levelname}|{name}|{funcName}:{message}"
+
+handlers:
+  file:
+    formatter: file
+    class: logging.handlers.RotatingFileHandler
+    filename: logs/app.log
+    maxBytes: 5_000_000
+    backupCount: 2
+
+  console:
+    level: WARNING
+    formatter: console
+    class: logging.StreamHandler
+    stream: ext://sys.stdout
+
+root:
+  level: DEBUG
+  handlers: [console, file]
+
