@@ -8,9 +8,11 @@ from .commands.show_cmd import show_router
 from .commands.shuffle import shuffle_router
 from .commands.start import start_router
 from .commands.test import test_router
+from .commands.verbs import verbs_router
 
 from .msg.play import play_msg_router
 from .msg.shuffle import shuffle_msg_router
+from .msg.verbs import verbs_msg_router
 
 
 routers_list = [
@@ -20,9 +22,11 @@ routers_list = [
     show_router,
     shuffle_router,
     test_router,
+    verbs_router,
 
     play_msg_router,
     shuffle_msg_router,
+    verbs_msg_router,
 
     shuffle_call_router,
     play_call_router,

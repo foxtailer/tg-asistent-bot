@@ -31,6 +31,7 @@ async def test(msg: types.Message, command, state:FSMContext, bot):
     await state.set_state(UserState.play)
 
     if command.args:
+        print(command.args)
         args = await parse_test_args(command.args.replace(' ', '').strip())
 
         if args:

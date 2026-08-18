@@ -5,3 +5,4 @@ class UserState(StatesGroup):
     shuffle = State()
     show = State()
     play = State()
+    verbs = State()
