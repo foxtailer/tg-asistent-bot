@@ -23,6 +23,17 @@ async def init_db():
                     bot TEXT DEFAULT 'ENG' CHECK (LENGTH(bot) = 3) 
                 )
             """)
+
+            await connection.execute("""
+                CREATE TABLE IF NOT EXISTS extra (
+                    word_id INTEGER NOT NULL,
+                    user_name TEXT NOT NULL,
+                    ogg_data BLOB NOT NULL,
+                    vid BLOB,
+                    sub TEXT
+                )
+            """)
+
             await connection.commit()
             print("Table created or already exists.")
     except aiosqlite.Error as e:
@@ -240,3 +251,28 @@ def find_dir_path():
     script_path = os.path.realpath(__file__)
     dir_path = os.path.dirname(script_path)
     return dir_path
+
+
+async def check_word(user_name: str, word: str, db_path=DB_PATH) -> list[WordRow]:
+    async with aiosqlite.connect(db_path) as connection:
+        cursor = await connection.execute(
+            f"SELECT * FROM {user_name} WHERE eng = ?",
+            (word,)
+        )
+        rows = await cursor.fetchall()
+        return rows
+
+
+async def word_extra(user_name: str, word_id: str, db_path=DB_PATH) -> list[WordRow]:
+    async with aiosqlite.connect(db_path) as connection:
+        cursor = await connection.execute(
+            """
+            SELECT ogg_data, vid, sub
+            FROM extra
+            WHERE user_name = ? AND word_id = ?
+            """,
+            (user_name, word_id)
+        )
+
+        rows = await cursor.fetchall()
+        return rows

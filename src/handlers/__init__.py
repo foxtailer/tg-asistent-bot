@@ -13,6 +13,7 @@ from .commands.verbs import verbs_router
 from .msg.play import play_msg_router
 from .msg.shuffle import shuffle_msg_router
 from .msg.verbs import verbs_msg_router
+from .msg.check import check_msg_router
 
 
 routers_list = [
@@ -27,6 +28,7 @@ routers_list = [
     play_msg_router,
     shuffle_msg_router,
     verbs_msg_router,
+    check_msg_router,
 
     shuffle_call_router,
     play_call_router,

@@ -13,12 +13,13 @@ async def shuffle_msg(msg: types.Message, state: FSMContext, bot):
     data = data['shuffle']
 
     if msg.text.lower() == data['shuffle_word']:
-        btn = types.KeyboardButton(text="/shuffle")
-        rkb = types.ReplyKeyboardMarkup(keyboard=[[btn]], resize_keyboard=True)
+        # btn = types.KeyboardButton(text="/shuffle")
+        # rkb = types.ReplyKeyboardMarkup(keyboard=[[btn]], resize_keyboard=True)
 
         await msg.answer(text=f"✅\n{data['shuffle_word'].capitalize()}: {data['shuffle_rus']}\n"\
                               f"{data['shuffle_ex'].capitalize()}",
-                              reply_markup=rkb)
+                              # reply_markup=rkb
+                              )
         
         await bot.delete_message(chat_id=msg.chat.id, message_id=data['shuffle_msg'])
         await state.clear()

@@ -74,20 +74,20 @@ COMANDS = (
     'test',
     'shuffle',
     'show',
-    'verbs',
+    #'verbs',
     'add',
     'del',
     'start',
-    'sentense',
-    'get_example',
+    #'sentense',
+    #'get_example',
 )
 
-COMAND_TITLES_ENG = (
+COMAND_TITLES_EN = (
     'Help/Info',
     'Test throw selected day',
     'Try to guess shuffled word',
     'Show dictionary',
-    'Learn irregular verbs',
+    #'Learn irregular verbs',
     'Add new words in dict',
     'Delete word/words',
     'Start bot',

@@ -36,10 +36,13 @@ else:
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    await bot.set_my_commands(commands=get_command_list('RU'), scope=types.BotCommandScopeAllPrivateChats())
-    await dp.start_polling(bot, 
-                           allowed_updates=["message", "edited_message", "callback_query", "inline_query"],
-                           polling_timeout=20)
+    await bot.set_my_commands(
+        commands=get_command_list('EN'), 
+        scope=types.BotCommandScopeAllPrivateChats())
+    await dp.start_polling(
+        bot, 
+        allowed_updates=["message", "edited_message", "callback_query", "inline_query"],
+        polling_timeout=20)
 
 
 if __name__ == '__main__':

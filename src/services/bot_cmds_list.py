@@ -12,6 +12,7 @@ def get_command_list(bot_lang):
     Comand = namedtuple('Comand', ['name', 'title'])
     comand_list = [Comand(name, title) for name, title in comand_list]
 
-    bot_cmnds = [BotCommand(command=comand.name, description=comand.title) for comand in comand_list]
+    bot_cmnds = [BotCommand(command=comand.name, description=comand.title) 
+                 for comand in comand_list]
 
     return bot_cmnds
