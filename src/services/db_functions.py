@@ -1,4 +1,3 @@
-import os
 import random
 import aiosqlite
 from datetime import datetime
@@ -8,271 +7,327 @@ from collections import defaultdict, namedtuple
 from src.config import DB_PATH
 
 WordRow = namedtuple("WordRow", ["id", "eng", "rus", "example", "day", "lvl"])
+ExtraRow = namedtuple("ExtraRow", ["ogg_data", "videos"])  # videos = list of VideoRow
+VideoRow = namedtuple("VideoRow", ["id", "data", "sub"])
 
 
-async def init_db():
-    print(f"Connecting to database at {DB_PATH}")
+async def init_db(db_path: str = DB_PATH) -> None:
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id   INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                bot  TEXT DEFAULT 'ENG' CHECK (LENGTH(bot) = 3)
+            );
 
-    try:
-        async with aiosqlite.connect(DB_PATH) as connection:
-            print("Creating table if not exists...")
-            await connection.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    bot TEXT DEFAULT 'ENG' CHECK (LENGTH(bot) = 3) 
-                )
-            """)
+            CREATE TABLE IF NOT EXISTS words (
+                id      INTEGER PRIMARY KEY,
+                eng     TEXT NOT NULL UNIQUE,
+                rus     TEXT NOT NULL,
+                example TEXT
+            );
 
-            await connection.execute("""
-                CREATE TABLE IF NOT EXISTS extra (
-                    word_id INTEGER NOT NULL,
-                    user_name TEXT NOT NULL,
-                    ogg_data BLOB NOT NULL,
-                    vid BLOB,
-                    sub TEXT
-                )
-            """)
+            CREATE TABLE IF NOT EXISTS user_words (
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                word_id INTEGER NOT NULL REFERENCES words(id),
+                day     TEXT NOT NULL,
+                lvl     INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, word_id)
+            );
 
-            await connection.commit()
-            print("Table created or already exists.")
-    except aiosqlite.Error as e:
-        print(f"SQLite error: {e}")
+            CREATE TABLE IF NOT EXISTS ogg (
+                id      INTEGER PRIMARY KEY,
+                word_id INTEGER NOT NULL REFERENCES words(id),
+                data    BLOB NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS vid (
+                id      INTEGER PRIMARY KEY,
+                word_id INTEGER NOT NULL REFERENCES words(id),
+                data    BLOB NOT NULL,
+                sub     TEXT
+            );
+        """)
+        await conn.commit()
+
+
+async def check_user(user_name: str, db_path: str = DB_PATH) -> bool:
+    """Returns True if user existed, False if just created."""
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id FROM users WHERE name = ?", (user_name,))
+            row = await cur.fetchone()
+            if row:
+                return True
+            await cur.execute("INSERT INTO users (name) VALUES (?)", (user_name,))
+            await conn.commit()
+            return False
+
+
+async def _get_user_id(cur: aiosqlite.Cursor, user_name: str) -> int | None:
+    await cur.execute("SELECT id FROM users WHERE name = ?", (user_name,))
+    row = await cur.fetchone()
+    return row[0] if row else None
 
 
 async def add_to_db(
-    user_name: str, words: List[Tuple[str, str, str]], db_path: str = DB_PATH
+    user_name: str,
+    words: List[Tuple[str, str, str]],
+    db_path: str = DB_PATH
 ) -> bool:
+    """Add words to global words table and link them to user."""
     try:
-        async with aiosqlite.connect(db_path) as connection:
-            async with connection.cursor() as cursor:
-                today_date = datetime.today().isoformat()[:10]
+        today = datetime.today().isoformat()[:10]
+        async with aiosqlite.connect(db_path) as conn:
+            async with conn.cursor() as cur:
+                user_id = await _get_user_id(cur, user_name)
+                if not user_id:
+                    return False
 
-                for data_set in words:
-                    insert_data = (*data_set, today_date)
-                    await cursor.execute(
-                        f"""INSERT OR REPLACE INTO {user_name} 
-                            (eng, rus, example, day) VALUES (?, ?, ?, ?)""",
-                        insert_data,
+                for eng, rus, example in words:
+                    # Insert word globally, ignore if exists
+                    await cur.execute(
+                        """INSERT OR IGNORE INTO words (eng, rus, example)
+                           VALUES (?, ?, ?)""",
+                        (eng, rus, example)
+                    )
+                    await cur.execute(
+                        "SELECT id FROM words WHERE eng = ?", (eng,)
+                    )
+                    word_id = (await cur.fetchone())[0]
+
+                    # Link to user
+                    await cur.execute(
+                        """INSERT OR REPLACE INTO user_words (user_id, word_id, day)
+                           VALUES (?, ?, ?)""",
+                        (user_id, word_id, today)
                     )
 
-                await connection.commit()
-
+                await conn.commit()
         return True
     except Exception as e:
         return False
 
 
 async def del_from_db(
-    user_name, command_args: Tuple[str, Tuple[int]], db_path=DB_PATH
+    user_name: str,
+    command_args: Tuple[bool, Tuple[int]],
+    db_path: str = DB_PATH
 ) -> bool:
+    """Delete by word IDs or by day numbers."""
     try:
-        async with aiosqlite.connect(db_path) as connection:
-            cursor = await connection.cursor()
+        async with aiosqlite.connect(db_path) as conn:
+            async with conn.cursor() as cur:
+                user_id = await _get_user_id(cur, user_name)
+                if not user_id:
+                    return False
 
-            if not command_args[0]:
-                # Delete by IDs
-                placeholders = ",".join("?" for _ in command_args[1])
-                query = f"DELETE FROM {user_name} WHERE id IN ({placeholders})"
-                await cursor.execute(query, command_args[1])
+                by_day, ids = command_args
 
-            else:
-                # Delete by day numbers
-                day_numbers = command_args[1]
+                if not by_day:
+                    placeholders = ",".join("?" * len(ids))
+                    await cur.execute(
+                        f"""DELETE FROM user_words
+                            WHERE user_id = ? AND word_id IN ({placeholders})""",
+                        (user_id, *ids)
+                    )
+                else:
+                    # Get ordered unique days for this user
+                    await cur.execute(
+                        """SELECT DISTINCT day FROM user_words
+                           WHERE user_id = ? ORDER BY day""",
+                        (user_id,)
+                    )
+                    unique_days = [r[0] for r in await cur.fetchall()]
+                    total = len(unique_days)
 
-                # Validate day_numbers
-                query = f"SELECT COUNT(DISTINCT day) FROM {user_name}"
-                await cursor.execute(query)
-                total_days = (await cursor.fetchone())[0]
+                    days_for_del = [
+                        unique_days[d - 1]
+                        for d in ids
+                        if 1 <= d <= total
+                    ]
+                    if not days_for_del:
+                        return True
 
-                valid_day_numbers = [
-                    day for day in day_numbers if 1 <= day <= total_days
-                ]
+                    placeholders = ",".join("?" * len(days_for_del))
+                    await cur.execute(
+                        f"""DELETE FROM user_words
+                            WHERE user_id = ? AND day IN ({placeholders})""",
+                        (user_id, *days_for_del)
+                    )
 
-                query = f"SELECT DISTINCT day FROM {user_name}"
-                await cursor.execute(query)
-                unique_days = tuple(day[0] for day in await cursor.fetchall())
-
-                days_for_del = [unique_days[day - 1] for day in valid_day_numbers]
-
-                placeholders = ",".join("?" for _ in days_for_del)
-                query = f"DELETE FROM {user_name} WHERE day IN ({placeholders})"
-                await cursor.execute(query, days_for_del)
-
-            await connection.commit()
-            return True
-
+                await conn.commit()
+        return True
     except Exception as e:
-        print(f"Error during database deletion: {e}")
+        print(f"Error during deletion: {e}")
         return False
 
 
-async def create_user(user_name: str, db_path=DB_PATH) -> None:
-
+async def get_word(
+    user_name: str,
+    n: int = 1,
+    db_path: str = DB_PATH
+) -> list[WordRow] | None:
+    """Get n random words for user."""
     async with aiosqlite.connect(db_path) as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {user_name} (
-                    id INTEGER PRIMARY KEY,
-                    eng TEXT NOT NULL UNIQUE,
-                    rus TEXT NOT NULL,
-                    example TEXT,
-                    day TEXT,
-                    lvl INTEGER DEFAULT 0
-                )
-            """)
-            await conn.commit()
+        async with conn.cursor() as cur:
+            user_id = await _get_user_id(cur, user_name)
+            if not user_id:
+                return None
 
-
-async def check_user(user_name: str, db_path=DB_PATH) -> bool:
-
-    async with aiosqlite.connect(db_path) as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                "SELECT COUNT(*) FROM users WHERE name = ?", (user_name,)
+            await cur.execute(
+                """SELECT w.id, w.eng, w.rus, w.example, uw.day, uw.lvl
+                   FROM user_words uw
+                   JOIN words w ON w.id = uw.word_id
+                   WHERE uw.user_id = ?""",
+                (user_id,)
             )
-            user_exists = (await cursor.fetchone())[0] > 0
+            rows = await cur.fetchall()
 
-            if not user_exists:
-                await cursor.execute(
-                    "INSERT INTO users (name) VALUES (?)", (user_name,)
-                )
-                await conn.commit()
-                await create_user(user_name, DB_PATH)
-                return False
-            else:
-                return True
+        if not rows:
+            return None
 
-
-async def get_word(user_name: str, n: int = 1, db_path=DB_PATH) -> list[WordRow,]:
-    async with aiosqlite.connect(db_path) as db:
-        async with db.cursor() as cursor:
-            await cursor.execute(f"SELECT COUNT(*) FROM {user_name}")
-            row_count = (await cursor.fetchone())[0]
-
-            if row_count == 0:
-                return None  # No rows in the table
-
-            # Generate unique random offsets
-            num_rows = min(n, row_count)
-            offsets = set()
-            while len(offsets) < num_rows:
-                offsets.add(random.randint(0, row_count - 1))
-
-            rows_as_tuples = []
-            for offset in offsets:
-                # Fetch a single random row with OFFSET
-                query = f"SELECT * FROM {user_name} LIMIT 1 OFFSET {offset}"
-                await cursor.execute(query)
-                row = await cursor.fetchone()
-
-                if row:
-                    rows_as_tuples.append(row)
-
-            return rows_as_tuples
+        sample = random.sample(rows, min(n, len(rows)))
+        return [WordRow(*r) for r in sample]
 
 
 async def get_day(
-    user_name: str, days: Tuple[int], db_path: str = DB_PATH
-) -> dict[int : list[WordRow,]]:
-    """
-    Return day or days {day_number: [WordRow,...],}
-    """
+    user_name: str,
+    days: Tuple[int],
+    db_path: str = DB_PATH
+) -> dict[int, list[WordRow]]:
+    """Return {day_number: [WordRow,...]}"""
     result = {}
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.cursor() as cur:
+            user_id = await _get_user_id(cur, user_name)
+            if not user_id:
+                return result
 
-    async with aiosqlite.connect(db_path) as connection:
-        # Fetch all unique days in the database
-        async with connection.execute(f"""
-            SELECT DISTINCT day
-            FROM {user_name}
-            ORDER BY day
-        """) as cursor:
-            unique_days = await cursor.fetchall()
-            unique_days = [day[0] for day in unique_days]  # Flatten to a list of days
+            await cur.execute(
+                """SELECT DISTINCT day FROM user_words
+                   WHERE user_id = ? ORDER BY day""",
+                (user_id,)
+            )
+            unique_days = [r[0] for r in await cur.fetchall()]
+            day_mapping = {idx + 1: day for idx, day in enumerate(unique_days)}
 
-        # Map the specified day index to actual days
-        day_mapping = {idx + 1: day for idx, day in enumerate(unique_days)}
+            for day_index in days:
+                if day_index not in day_mapping:
+                    continue
+                target_day = day_mapping[day_index]
 
-        for day_index in days:
-            # Skip invalid index
-            if day_index < 1 or day_index > len(unique_days):
-                continue
-
-            # Get the corresponding day value
-            target_day = day_mapping[day_index]
-
-            # Fetch rows for the specified day
-            async with connection.execute(
-                f"""
-                SELECT id, eng, rus, example, day, lvl
-                FROM {user_name}
-                WHERE day = ?
-                ORDER BY id
-            """,
-                (target_day,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-
-            # Convert rows to named tuples and store in the result dictionary
-            result[day_index] = [WordRow(*row) for row in rows]
+                await cur.execute(
+                    """SELECT w.id, w.eng, w.rus, w.example, uw.day, uw.lvl
+                       FROM user_words uw
+                       JOIN words w ON w.id = uw.word_id
+                       WHERE uw.user_id = ? AND uw.day = ?
+                       ORDER BY w.id""",
+                    (user_id, target_day)
+                )
+                rows = await cur.fetchall()
+                result[day_index] = [WordRow(*r) for r in rows]
 
     return result
 
 
-async def get_all(user_name: str, db_path: str = DB_PATH) -> dict[int : list[WordRow]]:
-    """
-    Return all user days {day_number: [WordRow,...],}
-    """
-
+async def get_all(
+    user_name: str,
+    db_path: str = DB_PATH
+) -> dict[int, list[WordRow]]:
+    """Return all user words {day_number: [WordRow,...]}"""
     result = defaultdict(list)
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.cursor() as cur:
+            user_id = await _get_user_id(cur, user_name)
+            if not user_id:
+                return {}
 
-    async with aiosqlite.connect(db_path) as connection:
-        async with connection.execute(f"SELECT * FROM {user_name}") as cursor:
-            rows = await cursor.fetchall()
+            await cur.execute(
+                """SELECT w.id, w.eng, w.rus, w.example, uw.day, uw.lvl
+                   FROM user_words uw
+                   JOIN words w ON w.id = uw.word_id
+                   WHERE uw.user_id = ?
+                   ORDER BY uw.day, w.id""",
+                (user_id,)
+            )
+            rows = await cur.fetchall()
 
-        # Extract unique day numbers and map them to sequential indices
-        unique_days = sorted(
-            set(row[4] for row in rows)
-        )  # Assuming day is the 5th column
+        unique_days = sorted(set(r[4] for r in rows))
         day_to_index = {day: idx + 1 for idx, day in enumerate(unique_days)}
 
-        # Group rows by sequential day indices using the named tuple
         for row in rows:
-            day_number = row[4]  # Assuming day is the 5th column
-            day_index = day_to_index[day_number]
-            result[day_index].append(
-                WordRow(*row)
-            )  # Convert the tuple to a named tuple
+            day_index = day_to_index[row[4]]
+            result[day_index].append(WordRow(*row))
 
     return dict(result)
 
 
-def find_dir_path():
-    script_path = os.path.realpath(__file__)
-    dir_path = os.path.dirname(script_path)
-    return dir_path
+async def check_word(
+    user_name: str,
+    word: str,
+    db_path: str = DB_PATH
+) -> list[WordRow]:
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.cursor() as cur:
+            user_id = await _get_user_id(cur, user_name)
+            if not user_id:
+                return []
+
+            await cur.execute(
+                """SELECT w.id, w.eng, w.rus, w.example, uw.day, uw.lvl
+                   FROM user_words uw
+                   JOIN words w ON w.id = uw.word_id
+                   WHERE uw.user_id = ? AND w.eng = ?""",
+                (user_id, word)
+            )
+            rows = await cur.fetchall()
+    return [WordRow(*r) for r in rows]
 
 
-async def check_word(user_name: str, word: str, db_path=DB_PATH) -> list[WordRow]:
-    async with aiosqlite.connect(db_path) as connection:
-        cursor = await connection.execute(
-            f"SELECT * FROM {user_name} WHERE eng = ?",
-            (word,)
+async def word_extra(
+    word_id: int,
+    db_path: str = DB_PATH
+) -> ExtraRow | None:
+    """Return audio and all videos for a word."""
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.cursor() as cur:
+            # Audio (one per word)
+            await cur.execute(
+                "SELECT data FROM ogg WHERE word_id = ?", (word_id,)
+            )
+            ogg_row = await cur.fetchone()
+            ogg_data = ogg_row[0] if ogg_row else None
+
+            # Videos (multiple per word)
+            await cur.execute(
+                "SELECT id, data, sub FROM vid WHERE word_id = ?", (word_id,)
+            )
+            vid_rows = await cur.fetchall()
+            videos = [VideoRow(*r) for r in vid_rows]
+
+    if not ogg_data and not videos:
+        return None
+
+    return ExtraRow(ogg_data=ogg_data, videos=videos)
+
+
+async def save_ogg(word_id: int, data: bytes, db_path: str = DB_PATH) -> None:
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(
+            "INSERT INTO ogg (word_id, data) VALUES (?, ?)",
+            (word_id, data)
         )
-        rows = await cursor.fetchall()
-        return rows
+        await conn.commit()
 
 
-async def word_extra(user_name: str, word_id: str, db_path=DB_PATH) -> list[WordRow]:
-    async with aiosqlite.connect(db_path) as connection:
-        cursor = await connection.execute(
-            """
-            SELECT ogg_data, vid, sub
-            FROM extra
-            WHERE user_name = ? AND word_id = ?
-            """,
-            (user_name, word_id)
+async def add_video(word_id: int, video_path: str, sub: str = None, db_path: str = DB_PATH) -> None:
+    with open(video_path, "rb") as f:
+        video_bytes = f.read()
+    
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(
+            "INSERT INTO vid (word_id, data, sub) VALUES (?, ?, ?)",
+            (word_id, video_bytes, sub)
         )
-
-        rows = await cursor.fetchall()
-        return rows
+        await conn.commit()

@@ -10,8 +10,14 @@ show_call_router = Router()
 
 @show_call_router.callback_query(UserState.show)
 async def callback_show(callback: types.CallbackQuery, state: FSMContext, bot):
-    data = await state.get_data()  # {'show': {1: [10749,], msg:...}}
-    data = data['show']
+    fsm_data = await state.get_data()
+    
+    if 'show' not in fsm_data:
+        await callback.answer("Session expired, please run the command again", show_alert=True)
+        await state.clear()
+        return
+    
+    data = fsm_data['show']  # {1: [10749,], 'msg': ...}
     args = callback.data.split('_')
 
     class FakeComand():
